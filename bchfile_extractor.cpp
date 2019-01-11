@@ -1,0 +1,440 @@
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <wait.h>
+#include <string.h>
+#include <ctype.h>
+#include <string>
+#include <map>
+
+using std::string;
+using std::map;
+using std::pair;
+
+typedef unsigned char uchar;
+typedef unsigned int uint;
+typedef unsigned char BYTE;
+
+char out_str[1000000];
+
+void StrToHex(BYTE *pbDest, BYTE *pbSrc, int nLen)
+{
+	char h1,h2;
+	BYTE s1,s2;
+	int i;
+
+	for (i=0; i<nLen; i++)
+	{
+		h1 = pbSrc[2*i];
+		h2 = pbSrc[2*i+1];
+
+		s1 = toupper(h1) - 0x30;
+		if (s1 > 9) 
+		s1 -= 7;
+
+		s2 = toupper(h2) - 0x30;
+		if (s2 > 9) 
+		s2 -= 7;
+
+		pbDest[i] = s1*16 + s2;
+	}
+}
+
+void HexToStr(BYTE *pbDest, BYTE *pbSrc, int nLen)
+{
+	char	ddl,ddh;
+	int i;
+
+	for (i=0; i<nLen; i++)
+	{
+		ddh = 48 + pbSrc[i] / 16;
+		ddl = 48 + pbSrc[i] % 16;
+		if (ddh > 57) ddh = ddh + 7;
+		if (ddl > 57) ddl = ddl + 7;
+		pbDest[i*2] = ddh;
+		pbDest[i*2+1] = ddl;
+	}
+
+	pbDest[nLen*2] = '\0';
+}
+
+//----------------------------------------------------------------------------------
+// convert hex var int(2B to 18B) to uint64
+//----------------------------------------------------------------------------------
+inline unsigned long int var2int64(char* hex_var, char *bytes) {
+	unsigned char b[9];
+	unsigned char s1, s2;
+	int i;
+	s1 = toupper(hex_var[0]) - 0x30;
+	if (s1 > 9)
+		s1 -= 7;
+	s2 = toupper(hex_var[1]) - 0x30;
+	if (s2 > 9)
+		s2 -= 7;
+	b[0] = s1*16 + s2;
+	if (b[0] > 252) {
+		switch (b[0]) {
+			case 253: 
+			for (i=1; i<3; i++) {
+				s1 = toupper(hex_var[i*2]) - 0x30;
+				if (s1 > 9) s1 -= 7;
+				s2 = toupper(hex_var[i*2+1]) - 0x30;
+				if (s2 > 9) s2 -= 7;
+				b[i] = s1*16 + s2;
+			}
+			*bytes = 3;
+			return (unsigned long int)*((unsigned short*)&b[1]);
+			case 254: 
+			for (i=1; i<5; i++) {
+				s1 = toupper(hex_var[i*2]) - 0x30;
+				if (s1 > 9) s1 -= 7;
+				s2 = toupper(hex_var[i*2+1]) - 0x30;
+				if (s2 > 9) s2 -= 7;
+				b[i] = s1*16 + s2;
+			}
+			*bytes = 5;
+			return (unsigned long int)*((unsigned int*)&b[1]);
+			case 255: 
+			for (i=1; i<9; i++) {
+				s1 = toupper(hex_var[i*2]) - 0x30;
+				if (s1 > 9) s1 -= 7;
+				s2 = toupper(hex_var[i*2+1]) - 0x30;
+				if (s2 > 9) s2 -= 7;
+				b[i] = s1*16 + s2;
+			}
+			*bytes = 9;
+			return (unsigned long int)*((unsigned long int*)&b[1]);
+		}
+	}
+	else {
+		*bytes = 1;
+		return b[0];
+	}
+}
+
+int cmd_run(const char* cmd, char* argv[], char* outstr)
+{
+    char buffer[8192] = { 0 };
+    int len;
+   int pfd[2];
+    int status;
+    pid_t pid;
+ 
+    /* create pipe */
+    if (pipe(pfd)<0)
+        return -1;
+ 
+    /* fork to execute external program or scripts */
+    pid = fork();
+    if (pid<0) {
+        return 0;
+    } else if (pid==0) { /* child process */
+        dup2(pfd[1], STDOUT_FILENO);
+        close(pfd[0]);
+ 
+        /* execute CGI */
+        execvp(cmd, argv);
+        exit(0);
+    } else { /* parent process */
+        close(pfd[1]);
+ 
+        /* print output from CGI */
+        while((len=read(pfd[0], buffer, 8192))>0) {
+			memcpy(outstr, buffer, len);
+			outstr += len;
+        }
+		outstr[0] = '\0';
+ 
+        /* waiting for CGI */
+        waitpid((pid_t)pid, &status, 0);
+    }
+	return 0;
+}
+
+//----------------------------------------------------------------------------------
+// get blockhash from block_num
+//----------------------------------------------------------------------------------
+void getblockhash(int block_num, char* blockhash) {
+	char cmd[20] = "bitcoin-cli";
+	char cmd2[30] = "getblockhash";
+	char blocknum_str[20];
+	sprintf(blocknum_str,"%d",block_num);
+	char *argv2[4] = {cmd,cmd2,blocknum_str,0};
+	cmd_run(argv2[0],&argv2[0],blockhash);
+	blockhash[strlen(blockhash)-1] = 0;
+}
+
+//----------------------------------------------------------------------------------
+// get blockcount
+//----------------------------------------------------------------------------------
+void getblockcount(int* blockcount) {
+	char cmd[20] = "bitcoin-cli";
+	char cmd2[30] = "getblockcount";
+	char *argv2[3] = {cmd,cmd2,0};
+	char outputs[100];
+	cmd_run(argv2[0],&argv2[0],outputs);
+	outputs[strlen(outputs)-1] = 0;
+	sscanf(outputs,"%d",blockcount);
+}
+
+//----------------------------------------------------------------------------------
+// get txid of rawtx
+//----------------------------------------------------------------------------------
+void getrawtxid(char* rawtx, char* txid) {
+	char cmd[20] = "bitcoin-tx";
+	char cmd2[20] = "-txid";
+	char *argv2[4] = {cmd,cmd2,rawtx,0};
+	cmd_run(argv2[0],&argv2[0],txid);
+	txid[strlen(txid)-1] = 0;
+}
+
+typedef map<string, string> TX_MAP;
+typedef map<string, int> BLKNUM_MAP;
+char block_str[65000000];
+
+//----------------------------------------------------------------------------------
+// get block txs from blockhash
+//----------------------------------------------------------------------------------
+void getblock(int blocknum, char* blockhash, TX_MAP* head_map, TX_MAP* data_map, BLKNUM_MAP* blocknum_map) {
+	char cmd[20] = "bitcoin-cli";
+	char cmd2[20] = "getblock";
+	char cmd3[20] = "false";
+	char *argv2[5] = {cmd,cmd2,blockhash,cmd3,0};
+	cmd_run(argv2[0],&argv2[0],block_str);
+	block_str[strlen(block_str)-1] = 0;
+	
+	char* pos = block_str+160;	//skip the block head
+	char* tx_pos;
+	char int_len;
+	unsigned long int tx_cnt, txin_cnt, txout_cnt, inscript_len, outscript_len;
+	int i, j;
+	tx_cnt = var2int64(pos, &int_len);	//Transactions Counter
+	pos += int_len*2;
+	for (j=0; j<tx_cnt; j++) {
+		int tx_flag = 0;
+		tx_pos = pos;
+		pos += 4*2;		//skip tx version
+		txin_cnt = var2int64(pos, &int_len);	//Inputs Counter
+		pos += int_len*2;
+		for (i=0; i<txin_cnt; i++) {
+			pos += 36*2;	//skip Previous tx Hash and Previous Output Index
+			inscript_len = var2int64(pos, &int_len);	//Inputs script length
+			pos += int_len*2;
+			pos += inscript_len*2+4*2;
+		}
+		txout_cnt = var2int64(pos, &int_len);	//Outputs Counter
+		pos += int_len*2;
+		for (i=0; i<txout_cnt; i++) {
+			if (i==0) {
+				if (!strncmp(pos,"0000000000000000",16)) {	//first output amount = 0, op_return found
+					char* op_return = pos+18;
+					char* op_return_data;
+					BYTE data_len;
+					char flag = 0;
+					if ((op_return[0]=='6') && (op_return[1]=='a')) {		//0x6a
+						if ((op_return[2]=='4') && (op_return[3]=='c')) {	//0x4c
+							StrToHex(&data_len, (BYTE*)&op_return[4], 1);		//get op_return data length
+							if (data_len > 75) {
+								op_return_data = &op_return[6];
+								flag = 1;
+							}
+							else {
+								printf ("Error OP_RETURN FOUND! data_len = %d\n", data_len);
+							}
+						}
+						else {	//1-75
+							StrToHex(&data_len, (BYTE*)&op_return[2], 1);		//get op_return data length
+							if (data_len >= 7) {
+								op_return_data = &op_return[4];
+								flag = 1;
+							}
+							else if ((data_len > 75) || (data_len==0)) {
+								printf ("Error OP_RETURN FOUND! data_len = %d\n", data_len);
+							}
+						}
+						if (flag) {
+							if (!strncmp(op_return_data, "42434846", 8)) {	//"BCHF"
+								if (!strncmp(op_return_data+8, "4d", 2)) {	//"M"
+									//store TX to head_map
+									tx_flag = 1;
+								}
+								else if ((!strncmp(op_return_data+8, "42", 2)) 		//"B"
+									   || !strncmp(op_return_data+8, "44", 2)) {	//"D"
+									//store TX to data_map
+									tx_flag = 2;
+								}
+							}
+						}
+					}
+				}
+			}
+			pos += 8*2;	//skip Amount of Output
+			outscript_len = var2int64(pos, &int_len);	//Outputs script length
+			pos += int_len*2;
+			pos += outscript_len*2;
+		}
+		pos += 4*2;	//Skip Lock Time
+		if (tx_flag) {
+			int tx_len = pos - tx_pos;
+			char tx_str[200000];	//200KB
+			char tx_id[70];
+			memcpy(tx_str,tx_pos,tx_len);
+			tx_str[tx_len]=0;
+			getrawtxid(tx_str, tx_id);
+			if (tx_flag == 1) {
+				head_map->insert(pair<string,string>(tx_id,tx_str));	//insert TX to head_map
+				blocknum_map->insert(pair<string,int>(tx_id,blocknum));
+			}
+			else if (tx_flag == 2) {
+				data_map->insert(pair<string,string>(tx_id,tx_str));	//insert TX to data_map
+			}
+		}
+	}
+}
+
+//----------------------------------------------------------------------------------
+// decode rawtx
+//----------------------------------------------------------------------------------
+void decoderawtx(char* rawtx, char* decodetx) {
+	char cmd[20] = "bitcoin-cli";
+	char cmd2[30] = "decoderawtransaction";
+	char *argv2[4] = {cmd,cmd2,rawtx,0};
+	cmd_run(argv2[0],&argv2[0],decodetx);
+	decodetx[strlen(decodetx)-1] = 0;
+}
+
+//----------------------------------------------------------------------------------
+// get filedata from data_map
+//----------------------------------------------------------------------------------
+void getfiledata(char* txid, TX_MAP* data_map, BYTE* filedata, size_t* filepos, unsigned int* cnt, bool* error) {
+	TX_MAP::iterator iter;
+	char decodetx[500000];		//500KB
+	char in_txid[70];
+	char* tmp;
+	char* tmp2;
+	int len;
+	BYTE op_return_data[223];
+	iter = data_map->find(txid);	//find tx
+	if(iter != data_map->end()) {
+		decoderawtx((char *)iter->second.c_str(), decodetx);	//decode tx
+		tmp = strstr(decodetx, "\"vout\"");
+		tmp = strstr(tmp, "OP_RETURN") + 10;
+		tmp2 = strchr(tmp, '\"');
+		len = (tmp2-tmp)/2;
+		StrToHex(op_return_data, (BYTE*)tmp, len);
+		if (op_return_data[4]=='D') {
+			memcpy(filedata+(*filepos), &op_return_data[9], len-9);
+			*filepos += len-9;
+			(*cnt) ++;
+			if (*cnt != *((unsigned int*)&op_return_data[5]))
+				*error = 1;
+		}
+		else {
+			tmp = strstr(decodetx, "\"vin\"");
+			while (1) {
+				tmp = strstr(tmp, "\"txid\"");
+				if (!tmp)
+					break;
+				tmp += 9;
+				memcpy(in_txid,tmp,64);
+				in_txid[64] = 0;
+				getfiledata(in_txid, data_map, filedata, filepos, cnt, error);
+			}
+		}
+	}
+}
+
+void getfile(TX_MAP::iterator head, TX_MAP* data_map, BYTE* filedata, size_t* filelen,
+			 BYTE* digest, size_t *filesize, BYTE* filename) {
+	char decodetx[500000];		//500KB
+	char in_txid[70];
+	char* tmp;
+	char* tmp2;
+	int len;
+	unsigned int cnt;
+	bool error = 0;
+	BYTE op_return_data[223];
+	BYTE size[8];
+	
+	decoderawtx((char *)head->second.c_str(), decodetx);	//decode tx
+	tmp = strstr(decodetx, "\"vout\"");
+	tmp = strstr(tmp, "OP_RETURN") + 10;
+	tmp2 = strchr(tmp, '\"');
+	len = (tmp2-tmp)/2;
+	StrToHex(op_return_data, (BYTE*)tmp, len);
+	memcpy(digest, op_return_data+7,32);
+	memset(size,0,8);
+	memcpy(size,op_return_data+43,5);
+	*filesize = *(size_t*)size;
+	memcpy(filename,op_return_data+48,160);
+	
+	tmp = strstr(decodetx, "\"vin\"");
+	cnt = 0;
+	while (1) {
+		tmp = strstr(tmp, "\"txid\"");
+		if (!tmp)
+			break;
+		tmp += 9;
+		memcpy(in_txid,tmp,64);
+		in_txid[64] = 0;
+		getfiledata(in_txid, data_map, filedata, filelen, &cnt, &error);
+	}
+	printf ("\nPiece count = %d, Error = %d\n", cnt, error);
+}
+
+BYTE filedata[1000000000];
+size_t filelen;
+BYTE digest[32];
+size_t filesize;
+BYTE filename[160];
+
+int main( int argc, char *argv[] ) {
+
+    TX_MAP head_map, data_map;
+	BLKNUM_MAP blocknum_map;
+	int latest_block;
+	int begin_block = 561352;
+	int block_num;
+	char blockhash[70];
+	char digest_str[65];
+	char fname_save[100];
+	int i = 0;
+	FILE* fp;
+	getblockcount(&latest_block);
+	
+	printf ("Processing blocks from %d to %d ...\n", begin_block, latest_block);
+	
+	for (block_num = begin_block; block_num <= latest_block; block_num++) {
+		getblockhash(block_num, blockhash);
+		getblock(block_num, blockhash, &head_map, &data_map, &blocknum_map);
+	}
+	printf ("Processing blocks complete.\n");
+	TX_MAP::iterator my_Itr;
+	BLKNUM_MAP::iterator blknum_itr;
+
+	printf ("Extracting files ...\n");
+	blknum_itr = blocknum_map.begin();
+	for (my_Itr=head_map.begin(); my_Itr!=head_map.end(); ++my_Itr)
+	{
+		filelen = 0;
+		filesize = 0;
+		getfile(my_Itr, &data_map, filedata, &filelen, digest, &filesize, filename);
+		HexToStr((BYTE *)digest_str, digest, 32);
+		digest_str[64] = 0;
+		
+		sprintf(fname_save, "%d-%s", blknum_itr->second, my_Itr->first.c_str());
+		fp = fopen(fname_save, "wb+");
+		fwrite(filedata, filelen, 1, fp);
+		fclose(fp);
+		
+		printf("blocknum = %d, filelen = %d, filesize = %d, digest = %s\n", blknum_itr->second, filelen, filesize, digest_str);
+		printf("txID = %s\n", my_Itr->first.c_str());
+		printf("filename = %s\n", filename);
+		blknum_itr++;
+	}
+
+	return 0;
+}
