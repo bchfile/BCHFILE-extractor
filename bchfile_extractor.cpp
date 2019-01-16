@@ -423,7 +423,11 @@ int main( int argc, char *argv[] ) {
     TX_MAP head_map, data_map;
 	BLKNUM_MAP blocknum_map;
 	int latest_block;
+#ifdef TESTNET
+	int begin_block = 1280172;
+#else
 	int begin_block = 561352;
+#endif
 	int block_num;
 	char blockhash[70];
 	char digest_str[65];
