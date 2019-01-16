@@ -18,6 +18,8 @@ typedef unsigned char uchar;
 typedef unsigned int uint;
 typedef unsigned char BYTE;
 
+//#define TESTNET
+
 char out_str[1000000];
 
 void StrToHex(BYTE *pbDest, BYTE *pbSrc, int nLen)
@@ -119,7 +121,7 @@ int cmd_run(const char* cmd, char* argv[], char* outstr)
 {
     char buffer[8192] = { 0 };
     int len;
-   int pfd[2];
+	int pfd[2];
     int status;
     pid_t pid;
  
@@ -162,7 +164,12 @@ void getblockhash(int block_num, char* blockhash) {
 	char cmd2[30] = "getblockhash";
 	char blocknum_str[20];
 	sprintf(blocknum_str,"%d",block_num);
+#ifdef TESTNET
+	char cmd3[20] = "-testnet";
+	char *argv2[5] = {cmd,cmd3,cmd2,blocknum_str,0};
+#else
 	char *argv2[4] = {cmd,cmd2,blocknum_str,0};
+#endif
 	cmd_run(argv2[0],&argv2[0],blockhash);
 	blockhash[strlen(blockhash)-1] = 0;
 }
@@ -173,7 +180,12 @@ void getblockhash(int block_num, char* blockhash) {
 void getblockcount(int* blockcount) {
 	char cmd[20] = "bitcoin-cli";
 	char cmd2[30] = "getblockcount";
+#ifdef TESTNET
+	char cmd3[20] = "-testnet";
+	char *argv2[4] = {cmd,cmd3,cmd2,0};
+#else
 	char *argv2[3] = {cmd,cmd2,0};
+#endif
 	char outputs[100];
 	cmd_run(argv2[0],&argv2[0],outputs);
 	outputs[strlen(outputs)-1] = 0;
@@ -186,7 +198,12 @@ void getblockcount(int* blockcount) {
 void getrawtxid(char* rawtx, char* txid) {
 	char cmd[20] = "bitcoin-tx";
 	char cmd2[20] = "-txid";
+#ifdef TESTNET
+	char cmd3[20] = "-testnet";
+	char *argv2[5] = {cmd,cmd3,cmd2,rawtx,0};
+#else
 	char *argv2[4] = {cmd,cmd2,rawtx,0};
+#endif
 	cmd_run(argv2[0],&argv2[0],txid);
 	txid[strlen(txid)-1] = 0;
 }
@@ -202,7 +219,12 @@ void getblock(int blocknum, char* blockhash, TX_MAP* head_map, TX_MAP* data_map,
 	char cmd[20] = "bitcoin-cli";
 	char cmd2[20] = "getblock";
 	char cmd3[20] = "false";
+#ifdef TESTNET
+	char cmd4[20] = "-testnet";
+	char *argv2[6] = {cmd,cmd4,cmd2,blockhash,cmd3,0};
+#else
 	char *argv2[5] = {cmd,cmd2,blockhash,cmd3,0};
+#endif
 	cmd_run(argv2[0],&argv2[0],block_str);
 	block_str[strlen(block_str)-1] = 0;
 	
@@ -301,7 +323,12 @@ void getblock(int blocknum, char* blockhash, TX_MAP* head_map, TX_MAP* data_map,
 void decoderawtx(char* rawtx, char* decodetx) {
 	char cmd[20] = "bitcoin-cli";
 	char cmd2[30] = "decoderawtransaction";
+#ifdef TESTNET
+	char cmd3[20] = "-testnet";
+	char *argv2[5] = {cmd,cmd3,cmd2,rawtx,0};
+#else
 	char *argv2[4] = {cmd,cmd2,rawtx,0};
+#endif
 	cmd_run(argv2[0],&argv2[0],decodetx);
 	decodetx[strlen(decodetx)-1] = 0;
 }
