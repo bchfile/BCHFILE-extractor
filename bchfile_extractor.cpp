@@ -18,7 +18,7 @@ typedef unsigned char uchar;
 typedef unsigned int uint;
 typedef unsigned char BYTE;
 
-#define TESTNET
+//#define TESTNET
 
 char out_str[1000000];
 
