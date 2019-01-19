@@ -554,6 +554,26 @@ int main( int argc, char *argv[] ) {
 	int i = 0;
 	FILE* fp;
 	getblockcount(&latest_block);
+	printf ("Usage: bchfile [begin_block_num [end_block_num]]\n");
+	printf ("Eg: bchfile 561352 562352\n\n");
+	if (argc >= 2) {
+		int beginblock_arg = atoi(argv[1]);
+		if ((beginblock_arg >= begin_block) && (beginblock_arg <= latest_block))
+			begin_block = beginblock_arg;
+		else {
+			printf ("begin_block_num not in the correct range.\n");
+			return 1;
+		}
+		if (argc == 3) {
+			int endblock_arg = atoi(argv[2]);
+			if ((endblock_arg >= begin_block) && (endblock_arg <= latest_block))
+				latest_block = endblock_arg;
+			else {
+				printf ("end_block_num not in the correct range.\n");
+				return 1;
+			}
+		}
+	}
 //	latest_block = 1280211;			//for debug
 	unsigned long int totalblocksize = 0;
 	int blocksize;
@@ -572,6 +592,11 @@ int main( int argc, char *argv[] ) {
 	BLKNUM_MAP::iterator blknum_itr;
 
 	printf ("Extracting files ...\n");
+#ifdef TESTNET
+	FILE* fp2 = fopen("Testnet_Bchfile_Summary", "w+");
+#else
+	FILE* fp2 = fopen("Bchfile_Summary", "w+");
+#endif
 	blknum_itr = blocknum_map.begin();
 	for (my_Itr=head_map.begin(); my_Itr!=head_map.end(); ++my_Itr)
 	{
@@ -587,10 +612,19 @@ int main( int argc, char *argv[] ) {
 		fclose(fp);
 		
 		printf("blocknum = %d, filelen = %d, filesize = %d, digest = %s\n", blknum_itr->second, filelen, filesize, digest_str);
+		fprintf(fp2, "blocknum = %d, filelen = %d, filesize = %d, digest = %s\n", blknum_itr->second, filelen, filesize, digest_str);
 		printf("txID = %s\n", my_Itr->first.c_str());
+		fprintf(fp2, "txID = %s\n", my_Itr->first.c_str());
 		printf("filename = %s\n", filename);
+		fprintf(fp2, "filename = %s\n\n", filename);
 		blknum_itr++;
 	}
+	fclose(fp2);
+#ifdef TESTNET
+	printf("\nSummary stored in file Testnet_Bchfile_Summary.\n");
+#else
+	printf("\nSummary stored in file Bchfile_Summary.\n");
+#endif
 
 	return 0;
 }
