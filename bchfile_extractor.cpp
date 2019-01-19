@@ -18,7 +18,7 @@ typedef unsigned char uchar;
 typedef unsigned int uint;
 typedef unsigned char BYTE;
 
-//#define TESTNET
+#define TESTNET
 
 char out_str[1000000];
 
@@ -215,7 +215,7 @@ char block_str[65000000];
 //----------------------------------------------------------------------------------
 // get block txs from blockhash
 //----------------------------------------------------------------------------------
-void getblock(int blocknum, char* blockhash, TX_MAP* head_map, TX_MAP* data_map, BLKNUM_MAP* blocknum_map) {
+void getblock(int blocknum, char* blockhash, TX_MAP* head_map, TX_MAP* data_map, BLKNUM_MAP* blocknum_map, int* blocksize) {
 	char cmd[20] = "bitcoin-cli";
 	char cmd2[20] = "getblock";
 	char cmd3[20] = "false";
@@ -226,7 +226,9 @@ void getblock(int blocknum, char* blockhash, TX_MAP* head_map, TX_MAP* data_map,
 	char *argv2[5] = {cmd,cmd2,blockhash,cmd3,0};
 #endif
 	cmd_run(argv2[0],&argv2[0],block_str);
-	block_str[strlen(block_str)-1] = 0;
+	*blocksize = strlen(block_str);
+	block_str[*blocksize-1] = 0;
+	*blocksize = (*blocksize)/2;
 	
 	char* pos = block_str+160;	//skip the block head
 	char* tx_pos;
@@ -334,6 +336,64 @@ void decoderawtx(char* rawtx, char* decodetx) {
 }
 
 //----------------------------------------------------------------------------------
+// decode rawtx faster
+//----------------------------------------------------------------------------------
+void decoderawtxfast(char* rawtx, BYTE* op_return_data, int* len) {
+	char int_len;
+	unsigned long int txin_cnt, txout_cnt, inscript_len, outscript_len;
+	int i, j;
+	int tx_flag = 0;
+	char* pos = rawtx;
+	pos += 4*2;		//skip tx version
+	txin_cnt = var2int64(pos, &int_len);	//Inputs Counter
+	pos += int_len*2;
+	for (i=0; i<txin_cnt; i++) {
+		pos += 36*2;	//skip Previous tx Hash and Previous Output Index
+		inscript_len = var2int64(pos, &int_len);	//Inputs script length
+		pos += int_len*2;
+		pos += inscript_len*2+4*2;
+	}
+	txout_cnt = var2int64(pos, &int_len);	//Outputs Counter
+	pos += int_len*2;
+	if (!strncmp(pos,"0000000000000000",16)) {	//first output amount = 0, op_return found
+		char* op_return = pos+18;
+		char* op_return_data_str;
+		BYTE data_len;
+		char flag = 0;
+		if ((op_return[0]=='6') && (op_return[1]=='a')) {		//0x6a
+			if ((op_return[2]=='4') && (op_return[3]=='c')) {	//0x4c
+				StrToHex(&data_len, (BYTE*)&op_return[4], 1);		//get op_return data length
+				if (data_len > 75) {
+					op_return_data_str = &op_return[6];
+					flag = 1;
+				}
+				else {
+					printf ("Error OP_RETURN FOUND! data_len = %d\n", data_len);
+				}
+			}
+			else {	//1-75
+				StrToHex(&data_len, (BYTE*)&op_return[2], 1);		//get op_return data length
+				if (data_len >= 7) {
+					op_return_data_str = &op_return[4];
+					flag = 1;
+				}
+				else if ((data_len > 75) || (data_len==0)) {
+					printf ("Error OP_RETURN FOUND! data_len = %d\n", data_len);
+				}
+			}
+			if (flag) {
+				StrToHex(op_return_data, (BYTE*)op_return_data_str, data_len);
+				*len = data_len;
+			}
+		}
+	}
+	else {
+		printf ("Error Transaction, no OP_RETURN data found.\n");
+		*len = 0;
+	}
+}
+
+//----------------------------------------------------------------------------------
 // get filedata from data_map
 //----------------------------------------------------------------------------------
 void getfiledata(char* txid, TX_MAP* data_map, BYTE* filedata, size_t* filepos, unsigned int* cnt, bool* error) {
@@ -346,12 +406,7 @@ void getfiledata(char* txid, TX_MAP* data_map, BYTE* filedata, size_t* filepos, 
 	BYTE op_return_data[223];
 	iter = data_map->find(txid);	//find tx
 	if(iter != data_map->end()) {
-		decoderawtx((char *)iter->second.c_str(), decodetx);	//decode tx
-		tmp = strstr(decodetx, "\"vout\"");
-		tmp = strstr(tmp, "OP_RETURN") + 10;
-		tmp2 = strchr(tmp, '\"');
-		len = (tmp2-tmp)/2;
-		StrToHex(op_return_data, (BYTE*)tmp, len);
+		decoderawtxfast((char *)iter->second.c_str(), op_return_data, &len);
 		if (op_return_data[4]=='D') {
 			memcpy(filedata+(*filepos), &op_return_data[9], len-9);
 			*filepos += len-9;
@@ -359,16 +414,24 @@ void getfiledata(char* txid, TX_MAP* data_map, BYTE* filedata, size_t* filepos, 
 			if (*cnt != *((unsigned int*)&op_return_data[5]))
 				*error = 1;
 		}
-		else {
-			tmp = strstr(decodetx, "\"vin\"");
-			while (1) {
-				tmp = strstr(tmp, "\"txid\"");
-				if (!tmp)
-					break;
-				tmp += 9;
-				memcpy(in_txid,tmp,64);
+		else if (op_return_data[4]=='B'){
+			char* pos = (char *)iter->second.c_str();
+			pos += 4*2;		//skip tx version
+			char int_len, inscript_len;
+			int i, j;
+			unsigned long int txin_cnt = var2int64(pos, &int_len);	//Inputs Counter
+			pos += int_len*2;
+			for (i=0; i<txin_cnt; i++) {
+				for (j=0; j<32; j++) {
+					in_txid[62-j*2] = pos[j*2];
+					in_txid[63-j*2] = pos[j*2+1];
+				}
 				in_txid[64] = 0;
 				getfiledata(in_txid, data_map, filedata, filepos, cnt, error);
+				pos += 36*2;	//skip Previous tx Hash and Previous Output Index
+				inscript_len = var2int64(pos, &int_len);	//Inputs script length
+				pos += int_len*2;
+				pos += inscript_len*2+4*2;
 			}
 		}
 	}
@@ -435,14 +498,20 @@ int main( int argc, char *argv[] ) {
 	int i = 0;
 	FILE* fp;
 	getblockcount(&latest_block);
+//	latest_block = 1280211;			//for debug
+	unsigned long int totalblocksize = 0;
+	int blocksize;
 	
-	printf ("Processing blocks from %d to %d ...\n", begin_block, latest_block);
+	printf ("Reading blocks from %d to %d ...\n", begin_block, latest_block);
 	
 	for (block_num = begin_block; block_num <= latest_block; block_num++) {
 		getblockhash(block_num, blockhash);
-		getblock(block_num, blockhash, &head_map, &data_map, &blocknum_map);
+		getblock(block_num, blockhash, &head_map, &data_map, &blocknum_map, &blocksize);
+		totalblocksize += blocksize;
+		if ((block_num % 10) == 0)
+			printf ("Processing block %d, blocksize = %8d, totalsize = %12ld\n", block_num, blocksize, totalblocksize);
 	}
-	printf ("Processing blocks complete.\n");
+	printf ("Reading blocks complete.\n");
 	TX_MAP::iterator my_Itr;
 	BLKNUM_MAP::iterator blknum_itr;
 
