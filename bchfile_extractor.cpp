@@ -160,7 +160,7 @@ inline unsigned long int var2int64(char* hex_var, char *bytes) {
 
 int cmd_run(const char* cmd, char* argv[], char* outstr)
 {
-    char buffer[8192] = { 0 };
+    char buffer[65536] = { 0 };
     int len;
 	int pfd[2];
     int status;
@@ -185,7 +185,7 @@ int cmd_run(const char* cmd, char* argv[], char* outstr)
         close(pfd[1]);
  
         /* print output from CGI */
-        while((len=read(pfd[0], buffer, 8192))>0) {
+        while((len=read(pfd[0], buffer, 65536))>0) {
 			memcpy(outstr, buffer, len);
 			outstr += len;
         }
@@ -255,7 +255,7 @@ void getrawtxid(char* rawtx, char* txid) {
 void getrawtxidfast(char* rawtx, char* txid) {
 	int len = strlen(rawtx)/2;
 	int i;
-	BYTE tx[100000];
+	BYTE tx[100000];		//100KB
 	BYTE digest[32];
 	StrToHex(tx, (BYTE*)rawtx, len);
 	sha256_hash(digest, tx, len);
@@ -266,7 +266,7 @@ void getrawtxidfast(char* rawtx, char* txid) {
 
 typedef map<string, string> TX_MAP;
 typedef map<string, int> BLKNUM_MAP;
-char block_str[65000000];
+char block_str[65000000];		//65MB
 
 //----------------------------------------------------------------------------------
 // get block txs from blockhash
@@ -531,7 +531,7 @@ void getfile(TX_MAP::iterator head, TX_MAP* data_map, BYTE* filedata, size_t* fi
 	printf ("\nPiece count = %d, Error = %d\n", cnt, error);
 }
 
-BYTE filedata[1000000000];
+BYTE filedata[50000000];	//50MB
 size_t filelen;
 BYTE digest[32];
 size_t filesize;
