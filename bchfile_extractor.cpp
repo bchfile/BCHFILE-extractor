@@ -10,6 +10,8 @@
 #include <string>
 #include <map>
 
+#include "sha256.h"
+
 using std::string;
 using std::map;
 using std::pair;
@@ -20,9 +22,7 @@ typedef unsigned char BYTE;
 
 //#define TESTNET
 
-char out_str[1000000];
-
-void StrToHex(BYTE *pbDest, BYTE *pbSrc, int nLen)
+inline void StrToHex(BYTE *pbDest, BYTE *pbSrc, int nLen)
 {
 	char h1,h2;
 	BYTE s1,s2;
@@ -45,7 +45,30 @@ void StrToHex(BYTE *pbDest, BYTE *pbSrc, int nLen)
 	}
 }
 
-void HexToStr(BYTE *pbDest, BYTE *pbSrc, int nLen)
+inline void StrToHexReverse(BYTE *pbDest, BYTE *pbSrc, int nLen)
+{
+	char h1,h2;
+	BYTE s1,s2;
+	int i;
+
+	for (i=0; i<nLen; i++)
+	{
+		h1 = pbSrc[2*i];
+		h2 = pbSrc[2*i+1];
+
+		s1 = toupper(h1) - 0x30;
+		if (s1 > 9) 
+		s1 -= 7;
+
+		s2 = toupper(h2) - 0x30;
+		if (s2 > 9) 
+		s2 -= 7;
+
+		pbDest[nLen-1-i] = s1*16 + s2;
+	}
+}
+
+inline void HexToStr(BYTE *pbDest, BYTE *pbSrc, int nLen)
 {
 	char	ddl,ddh;
 	int i;
@@ -54,8 +77,26 @@ void HexToStr(BYTE *pbDest, BYTE *pbSrc, int nLen)
 	{
 		ddh = 48 + pbSrc[i] / 16;
 		ddl = 48 + pbSrc[i] % 16;
-		if (ddh > 57) ddh = ddh + 7;
-		if (ddl > 57) ddl = ddl + 7;
+		if (ddh > 57) ddh = ddh + 39;	//7 for uppercase, 39 for lowercase
+		if (ddl > 57) ddl = ddl + 39;
+		pbDest[i*2] = ddh;
+		pbDest[i*2+1] = ddl;
+	}
+
+	pbDest[nLen*2] = '\0';
+}
+
+inline void HexToStrReverse(BYTE *pbDest, BYTE *pbSrc, int nLen)
+{
+	char	ddl,ddh;
+	int i;
+
+	for (i=0; i<nLen; i++)
+	{
+		ddh = 48 + pbSrc[nLen-1-i] / 16;
+		ddl = 48 + pbSrc[nLen-1-i] % 16;
+		if (ddh > 57) ddh = ddh + 39;	//7 for uppercase, 39 for lowercase
+		if (ddl > 57) ddl = ddl + 39;
 		pbDest[i*2] = ddh;
 		pbDest[i*2+1] = ddl;
 	}
@@ -208,6 +249,21 @@ void getrawtxid(char* rawtx, char* txid) {
 	txid[strlen(txid)-1] = 0;
 }
 
+//----------------------------------------------------------------------------------
+// get txid of rawtx faster
+//----------------------------------------------------------------------------------
+void getrawtxidfast(char* rawtx, char* txid) {
+	int len = strlen(rawtx)/2;
+	int i;
+	BYTE tx[100000];
+	BYTE digest[32];
+	StrToHex(tx, (BYTE*)rawtx, len);
+	sha256_hash(digest, tx, len);
+	sha256_hash(digest, digest, 32);
+	HexToStrReverse((BYTE*)txid, digest, 32);
+	txid[64] = 0;
+}
+
 typedef map<string, string> TX_MAP;
 typedef map<string, int> BLKNUM_MAP;
 char block_str[65000000];
@@ -307,7 +363,7 @@ void getblock(int blocknum, char* blockhash, TX_MAP* head_map, TX_MAP* data_map,
 			char tx_id[70];
 			memcpy(tx_str,tx_pos,tx_len);
 			tx_str[tx_len]=0;
-			getrawtxid(tx_str, tx_id);
+			getrawtxidfast(tx_str, tx_id);
 			if (tx_flag == 1) {
 				head_map->insert(pair<string,string>(tx_id,tx_str));	//insert TX to head_map
 				blocknum_map->insert(pair<string,int>(tx_id,blocknum));
