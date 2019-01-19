@@ -18,7 +18,7 @@ $ cd BCHFILE-extractor
 
 Compile it:
 
-$ g++ bchfile extractor.cpp sha256.c -o bchfile
+$ g++ bchfile_extractor.cpp sha256.c -o bchfile
 
 Run it:
 
