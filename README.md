@@ -1,4 +1,4 @@
-# BCHFILE-extractor
+BCHFILE-extractor
 ===============
 
 This is a tool for extract arbitrary file from the BitcoinCash blockchain.
