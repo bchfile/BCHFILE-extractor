@@ -26,4 +26,8 @@ $ ./bchfile
 
 Waiting for a while, the program will extract all BCHFILEs from height 561352 to now.
 
+For testnet:
+
+Uncomment '#define TESTNET' and recompile.
+
 Hints: Run 'ulimit -n' to check the most open files limit on your system and change it to 65536 if the limit cause any problem.
