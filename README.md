@@ -1,15 +1,18 @@
 # BCHFILE-extractor
 ===============
+
 This is a tool for extract arbitrary file from the BitcoinCash blockchain.
 
 Preparation
 ---------------
+
 Install and Run Bitcoin-ABC node in daemon mode.
 
 txindex is not needed, that means the Extractor support Prune mode node.
 
 How to Run
 ---------------
+
 Download the code:
 
 $ git clone https://github.com/bchfile/BCHFILE-extractor.git
